@@ -3,21 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ConnectWise Backup</title>
+  <title>ConnectWise Manage</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <!-- ====== MAIN LAYOUT ====== -->
   <div id="app-container">
     
-    <!-- ConnectWise Webview -->
-    <div id="webview-container">
-      <webview 
-        id="cw-webview" 
-        src="https://na.myconnectwise.net/"
-        style="width:100%; height:100%;"
-        allowpopups
-      ></webview>
+        <!-- ConnectWise Webview Area -->
+    <div id="webview-area">
+      <!-- Tab Bar -->
+      <div id="tab-bar">
+        <div id="tab-list"></div>
+        <button id="btn-new-tab" title="New tab">+</button>
+      </div>
+      <!-- Webview Container (webviews are added/removed dynamically) -->
+      <div id="webview-container"></div>
     </div>
 
     <!-- Resize Handle -->
@@ -37,16 +38,34 @@
       <!-- Panel Content -->
       <div id="panel-content">
 
-        <!-- Ticket ID -->
+                <!-- Ticket ID -->
         <div class="form-group">
           <label for="ticket-id">Ticket / Reference ID</label>
-          <input type="text" id="ticket-id" placeholder="e.g. SR-123456 or any label" />
+          <div class="input-with-button">
+            <input type="text" id="ticket-id" placeholder="e.g. SR-123456 or any label" />
+            <button id="btn-grab-ticket" class="btn btn-small" title="Grab ticket number from the currently open ConnectWise page">🎯 Grab</button>
+          </div>
         </div>
 
-        <!-- Note Textarea -->
+                <!-- Note Editor -->
         <div class="form-group note-group">
-          <label for="note-content">Notes</label>
-          <textarea id="note-content" placeholder="Type or paste your ticket notes here. They will auto-save as you type..."></textarea>
+          <label>Notes</label>
+          <!-- Formatting Toolbar -->
+          <div id="editor-toolbar">
+            <button class="toolbar-btn" data-command="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+            <button class="toolbar-btn" data-command="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+            <button class="toolbar-btn" data-command="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+            <button class="toolbar-btn" data-command="strikeThrough" title="Strikethrough"><s>S</s></button>
+            <span class="toolbar-sep"></span>
+            <button class="toolbar-btn" data-command="insertUnorderedList" title="Bullet List">&#8226; List</button>
+            <button class="toolbar-btn" data-command="insertOrderedList" title="Numbered List">1. List</button>
+            <span class="toolbar-sep"></span>
+            <button class="toolbar-btn" data-command="formatBlock" data-value="h3" title="Heading">H</button>
+            <button class="toolbar-btn" data-command="formatBlock" data-value="blockquote" title="Quote">&ldquo;</button>
+            <button class="toolbar-btn" data-command="removeFormat" title="Clear Formatting">&oslash;</button>
+          </div>
+          <!-- Rich Text Editor -->
+          <div id="note-content" contenteditable="true" data-placeholder="Type or paste your ticket notes here. You can use formatting and paste images..."></div>
         </div>
 
         <!-- Status Bar -->
@@ -78,6 +97,7 @@
               <option value="">-- Select a ticket --</option>
             </select>
             <button id="btn-load-history" class="btn btn-small">Load History</button>
+            <button id="btn-delete-ticket" class="btn btn-small btn-delete" title="Delete all saved data for the selected ticket">🗑️ Delete</button>
           </div>
 
           <div id="history-list">

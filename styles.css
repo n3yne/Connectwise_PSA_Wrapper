@@ -43,16 +43,145 @@ html, body {
   height: 100%;
 }
 
-/* ===== Webview ===== */
-#webview-container {
+/* ===== Webview Area (tabs + webview container) ===== */
+#webview-area {
   flex: 1;
   height: 100%;
   min-width: 400px;
+  display: flex;
+  flex-direction: column;
 }
 
-#cw-webview {
+/* ===== Tab Bar ===== */
+#tab-bar {
+  display: flex;
+  align-items: center;
+  background: #0d0d1a;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  user-select: none;
+}
+
+#tab-bar::-webkit-scrollbar {
+  height: 3px;
+}
+
+#tab-bar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+#tab-list {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+  min-width: 0;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.tab-item:hover {
+  background: rgba(77, 168, 218, 0.08);
+  color: var(--text);
+}
+
+.tab-item.active {
+  background: var(--header-bg);
+  color: var(--primary);
+  border-bottom: 2px solid var(--primary);
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.tab-close:hover {
+  background: var(--warning);
+  color: #fff;
+}
+
+#btn-new-tab {
+  flex-shrink: 0;
+  width: 32px;
+  height: 28px;
+  margin: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+#btn-new-tab:hover {
+  background: var(--accent);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ===== Webview Container ===== */
+#webview-container {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+#webview-container webview {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
+  display: none;
+}
+
+#webview-container webview.active-webview {
+  display: flex;
 }
 
 /* ===== Resize Handle ===== */
@@ -151,6 +280,7 @@ html, body {
 }
 
 #ticket-id {
+  flex: 1;
   padding: 8px 10px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -159,10 +289,17 @@ html, body {
   font-size: 13px;
   outline: none;
   transition: border-color 0.2s;
+  min-width: 0;
 }
 
 #ticket-id:focus {
   border-color: var(--primary);
+}
+
+.input-with-button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .note-group {
@@ -176,18 +313,107 @@ html, body {
   padding: 10px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
-  border-radius: 6px;
+  border-radius: 0 0 6px 6px;
   color: var(--text);
   font-size: 13px;
-  font-family: 'Consolas', 'Courier New', monospace;
-  line-height: 1.5;
-  resize: none;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
   outline: none;
   transition: border-color 0.2s;
+  overflow-y: auto;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 #note-content:focus {
   border-color: var(--primary);
+}
+
+/* Placeholder for contenteditable */
+#note-content:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  font-style: italic;
+  pointer-events: none;
+}
+
+/* Rich text content styling */
+#note-content b, #note-content strong { font-weight: 700; }
+#note-content i, #note-content em { font-style: italic; }
+#note-content u { text-decoration: underline; }
+#note-content s, #note-content strike { text-decoration: line-through; }
+
+#note-content ul, #note-content ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+#note-content blockquote {
+  border-left: 3px solid var(--primary);
+  margin: 6px 0;
+  padding: 4px 10px;
+  color: var(--text-muted);
+  background: rgba(77, 168, 218, 0.05);
+}
+
+#note-content h3 {
+  font-size: 15px;
+  color: var(--primary);
+  margin: 6px 0 2px;
+}
+
+#note-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 6px 0;
+  border: 1px solid var(--input-border);
+}
+
+/* ===== Editor Toolbar ===== */
+#editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 7px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.toolbar-btn:hover {
+  background: var(--accent);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.toolbar-btn:active,
+.toolbar-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
 }
 
 /* ===== Status Bar ===== */
@@ -257,6 +483,17 @@ html, body {
 .btn-small:hover {
   background: var(--accent-hover);
   border-color: var(--primary);
+}
+
+.btn-delete {
+  background: transparent;
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.btn-delete:hover {
+  background: var(--warning);
+  color: #fff;
+  border-color: var(--warning);
 }
 
 #action-buttons {
