@@ -26,8 +26,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build portable EXE
-        run: npm run build
+            - name: Build portable EXE
+        run: npx electron-builder --win --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -57,8 +57,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build macOS DMG
-        run: npm run build-mac
+            - name: Build macOS DMG
+        run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
