@@ -102,7 +102,7 @@ function createWindow() {
     mainWindow = new electron.BrowserWindow({
     width: 1600,
     height: 1000,
-    title: 'ConnectWise Manage',
+    title: 'ConnectWise Manage++',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
