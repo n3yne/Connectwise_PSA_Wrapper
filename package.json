@@ -1,11 +1,11 @@
 {
     "name": "connectwise-manage-pp",
-      "version": "0.0.1",
-      "description": "ConnectWise Manage++ wrapper with automatic ticket note backup",
+    "version": "0.0.1",
+    "description": "ConnectWise Manage++ wrapper with automatic ticket note backup",
     "main": "main.js",
     "scripts": {
         "start": "node launch.js",
-                "build": "electron-builder --win",
+        "build": "electron-builder --win",
         "build-portable": "electron-builder --win portable",
         "build-mac": "electron-builder --mac"
     },
@@ -16,10 +16,10 @@
         "electron-builder": "^24.9.1"
     },
     "build": {
-                "appId": "com.connectwise.managepp",
+        "appId": "com.connectwise.managepp",
         "productName": "ConnectWise Manage++",
-                "win": {
-                        "target": [
+        "win": {
+            "target": [
                 "portable"
             ],
             "icon": "icon.ico"
