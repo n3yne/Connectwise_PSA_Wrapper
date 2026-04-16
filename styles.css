@@ -63,6 +63,7 @@ html, body {
   padding: 0 2px;
   overflow-x: auto;
   overflow-y: hidden;
+  -webkit-user-select: none;
   user-select: none;
 }
 
