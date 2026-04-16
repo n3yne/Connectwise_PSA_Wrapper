@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ConnectWise Backup</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ====== MAIN LAYOUT ====== -->
+  <div id="app-container">
+    
+    <!-- ConnectWise Webview -->
+    <div id="webview-container">
+      <webview 
+        id="cw-webview" 
+        src="https://na.myconnectwise.net/"
+        style="width:100%; height:100%;"
+        allowpopups
+      ></webview>
+    </div>
+
+    <!-- Resize Handle -->
+    <div id="resize-handle" title="Drag to resize"></div>
+
+    <!-- Side Panel -->
+    <div id="side-panel">
+      
+      <!-- Panel Header -->
+      <div id="panel-header">
+        <h2>📋 Note Backup</h2>
+        <div id="panel-header-buttons">
+          <button id="btn-toggle-panel" title="Collapse panel">◀</button>
+        </div>
+      </div>
+
+      <!-- Panel Content -->
+      <div id="panel-content">
+
+        <!-- Ticket ID -->
+        <div class="form-group">
+          <label for="ticket-id">Ticket / Reference ID</label>
+          <input type="text" id="ticket-id" placeholder="e.g. SR-123456 or any label" />
+        </div>
+
+        <!-- Note Textarea -->
+        <div class="form-group note-group">
+          <label for="note-content">Notes</label>
+          <textarea id="note-content" placeholder="Type or paste your ticket notes here. They will auto-save as you type..."></textarea>
+        </div>
+
+        <!-- Status Bar -->
+        <div id="status-bar">
+          <span id="autosave-status">Ready</span>
+        </div>
+
+        <!-- Action Buttons -->
+        <div id="action-buttons">
+          <button id="btn-save" class="btn btn-primary" title="Save a timestamped backup">💾 Save Snapshot</button>
+          <button id="btn-clear" class="btn btn-warning" title="Clear current note">🗑️ Clear</button>
+          <button id="btn-copy" class="btn btn-secondary" title="Copy notes to clipboard">📋 Copy</button>
+        </div>
+
+        <!-- Divider -->
+        <hr class="divider" />
+
+        <!-- History / Restore Section -->
+        <div id="history-section">
+          <div id="history-header">
+            <h3>📂 Saved Snapshots</h3>
+            <button id="btn-open-folder" class="btn btn-small" title="Open backup folder">📁 Open Folder</button>
+          </div>
+          
+          <!-- Saved Tickets List -->
+          <div id="saved-tickets">
+            <label>Saved Tickets:</label>
+            <select id="ticket-select">
+              <option value="">-- Select a ticket --</option>
+            </select>
+            <button id="btn-load-history" class="btn btn-small">Load History</button>
+          </div>
+
+          <div id="history-list">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsed Panel Toggle (shown when panel is hidden) -->
+  <button id="btn-expand-panel" class="expand-btn" title="Open Note Backup panel">▶<br/>N<br/>O<br/>T<br/>E<br/>S</button>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

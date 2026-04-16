@@ -1,0 +1,28 @@
+{
+  "name": "connectwise-backup",
+  "version": "1.0.0",
+  "description": "ConnectWise wrapper with automatic ticket note backup",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build-portable": "electron-builder --win portable"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.connectwise.backup",
+    "productName": "ConnectWise Backup",
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "icon.ico"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}
