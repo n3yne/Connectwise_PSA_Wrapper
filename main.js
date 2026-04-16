@@ -127,6 +127,19 @@ function createWindow() {
       mainWindow.webContents.send('open-in-new-tab', url);
       return { action: 'deny' };
     });
+
+    // Handle guest page calling window.close() (e.g. ConnectWise "Save and Close" button)
+    webviewContents.on('will-prevent-unload', (e) => {
+      // Don't let beforeunload dialogs block the close
+      e.preventDefault();
+    });
+
+    webviewContents.on('destroyed', () => {
+      // When guest webContents is destroyed, notify renderer to close the tab
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('webview-close', webviewContents.id);
+      }
+    });
   });
 }
 
@@ -293,6 +306,21 @@ function registerIpcHandlers() {
 }
 
 // ===================== App Lifecycle =====================
+
+// Prevent multiple instances - if already running, focus the existing window
+const gotTheLock = electron.app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  electron.app.quit();
+} else {
+  electron.app.on('second-instance', () => {
+    // Someone tried to open a second instance - focus our existing window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 electron.app.whenReady().then(() => {
   // Initialize paths now that app is ready

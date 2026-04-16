@@ -171,6 +171,12 @@ document.addEventListener('DOMContentLoaded', function() {
       saveTabSession();
     });
 
+    // --- Handle webview requesting to close itself (e.g. ConnectWise "Save and Close" button) ---
+    webview.addEventListener('close', function() {
+      console.log('[Tab] Webview requested close for tab:', id);
+      closeTab(id);
+    });
+
     // Activate the tab
     if (activate) {
       activateTab(id);
@@ -225,10 +231,25 @@ document.addEventListener('DOMContentLoaded', function() {
     createTab(DEFAULT_URL, { activate: true });
   });
 
-  // --- Listen for new-tab requests from the main process ---
+    // --- Listen for new-tab requests from the main process ---
   window.backupAPI.onOpenInNewTab(function(url) {
     console.log('[Tab] Opening in new tab:', url);
     createTab(url, { activate: true });
+  });
+
+  // --- Listen for webview self-close requests from the main process ---
+  // (e.g. ConnectWise "Save and Close" button calls window.close())
+  window.backupAPI.onWebviewClose(function(webContentsId) {
+    console.log('[Tab] Webview close request for webContentsId:', webContentsId);
+    for (var i = 0; i < tabs.length; i++) {
+      try {
+        if (tabs[i].webview.getWebContentsId() === webContentsId) {
+          console.log('[Tab] Closing tab:', tabs[i].id);
+          closeTab(tabs[i].id);
+          return;
+        }
+      } catch (e) { /* webview may not be ready */ }
+    }
   });
 
   // --- Restore tabs from previous session, or create a default tab ---
@@ -408,6 +429,84 @@ document.addEventListener('DOMContentLoaded', function() {
       isResizing = false;
       document.body.style.cursor = '';
       tabs.forEach(function(t) { t.webview.style.pointerEvents = ''; });
+    }
+  });
+
+  // ==================== Auto-Grab on First Typing ====================
+  var hasAttemptedAutoGrab = false;
+
+  noteContent.addEventListener('focus', async function() {
+    // If the user focuses the editor with no ticket ID, try to grab one
+    if (!ticketIdInput.value.trim() && !hasAttemptedAutoGrab) {
+      hasAttemptedAutoGrab = true;
+      // Simulate clicking the grab button
+      var webview = getActiveWebview();
+      if (!webview) return;
+
+      try {
+        var result = await webview.executeJavaScript(
+          '(function() {' +
+          '  var selectors = [' +
+          '    ".cw-header-ticket-number",' +
+          '    ".ticket-number",' +
+          '    "[class*=ticketNumber]",' +
+          '    "[class*=ticket-number]",' +
+          '    "[class*=TicketNumber]",' +
+          '    "[data-testid*=ticket]",' +
+          '    ".sr-number",' +
+          '    "[class*=srNumber]",' +
+          '    "[class*=recordId]",' +
+          '    "[class*=record-id]",' +
+          '    ".cw-breadcrumb",' +
+          '    ".breadcrumb",' +
+          '    ".tab-label.active",' +
+          '    ".cw-tab.active",' +
+          '    "[class*=activeTab]",' +
+          '    ".selected-tab",' +
+          '    ".panel-title",' +
+          '    ".card-header",' +
+          '    "h1", "h2", "h3"' +
+          '  ];' +
+          '  for (var i = 0; i < selectors.length; i++) {' +
+          '    var els = document.querySelectorAll(selectors[i]);' +
+          '    for (var j = 0; j < els.length; j++) {' +
+          '      var text = els[j].innerText || els[j].textContent || "";' +
+          '      var match = text.match(/#\\s*([0-9]{4,})/);' +
+          '      if (match) return { ticket: match[1] };' +
+          '    }' +
+          '  }' +
+          '  var body = document.body.innerText || "";' +
+          '  var patterns = [' +
+          '    /(?:Service\\s*Ticket|Ticket|SR)\\s*#\\s*([0-9]{4,})/i,' +
+          '    /#([0-9]{5,})/' +
+          '  ];' +
+          '  for (var p = 0; p < patterns.length; p++) {' +
+          '    var m = body.match(patterns[p]);' +
+          '    if (m) return { ticket: m[1] };' +
+          '  }' +
+          '  return { ticket: null };' +
+          '})()'
+        );
+
+        if (result && result.ticket) {
+          ticketIdInput.value = result.ticket;
+          autosaveStatus.textContent = 'Auto-grabbed ticket #' + result.ticket;
+          autosaveStatus.className = 'saved';
+        } else {
+          alert('Could not detect a ticket number from the current page.\n\nPlease enter a Ticket / Reference ID before typing your note.');
+          ticketIdInput.focus();
+        }
+      } catch (err) {
+        alert('Could not detect a ticket number from the current page.\n\nPlease enter a Ticket / Reference ID before typing your note.');
+        ticketIdInput.focus();
+      }
+    }
+  });
+
+  // Reset auto-grab flag when ticket ID is manually cleared
+  ticketIdInput.addEventListener('input', function() {
+    if (!ticketIdInput.value.trim()) {
+      hasAttemptedAutoGrab = false;
     }
   });
 
@@ -598,6 +697,8 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     setEditorContent('');
+    ticketIdInput.value = '';
+    hasAttemptedAutoGrab = false;
     autosaveStatus.textContent = 'Cleared';
     autosaveStatus.className = '';
   });
