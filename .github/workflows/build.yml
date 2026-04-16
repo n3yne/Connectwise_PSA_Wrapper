@@ -7,11 +7,11 @@ on:
   workflow_dispatch:   # Allows manual trigger from GitHub Actions tab
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
 
     permissions:
-      contents: write  # Needed to create releases and upload assets
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -29,25 +29,77 @@ jobs:
       - name: Build portable EXE
         run: npm run build
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # Skip code signing
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: Upload build artifact
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ConnectWise-ManagePP-portable
+          name: windows-build
           path: dist/*.exe
           retention-days: 90
 
+  build-mac:
+    runs-on: macos-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS DMG
+        run: npm run build-mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: dist/*.dmg
+          retention-days: 90
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: artifacts/
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: ConnectWise Manage++ ${{ github.ref_name }}
           body: |
             ## ConnectWise Manage++ ${{ github.ref_name }}
 
-            Portable Windows executable — no installation required.
-            Download the `.exe` below and run it directly.
+            ### Downloads
+            - **Windows** — Portable `.exe`, no installation required
+            - **macOS** — `.dmg` disk image, drag to Applications to install
           draft: false
           prerelease: false
-          files: dist/*.exe
+          files: artifacts/*
