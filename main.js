@@ -292,6 +292,14 @@ function registerIpcHandlers() {
     }
   });
 
+    // Open a URL in the user's default browser
+  electron.ipcMain.handle('open-in-browser', async (event, url) => {
+    if (url && typeof url === 'string') {
+      electron.shell.openExternal(url);
+    }
+    return { success: true };
+  });
+
   // Load saved tab URLs from disk
   electron.ipcMain.handle('load-tabs', async () => {
     if (fs.existsSync(TABS_FILE)) {

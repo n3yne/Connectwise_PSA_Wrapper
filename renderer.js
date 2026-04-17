@@ -122,10 +122,15 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
 
-    // --- Close button ---
+        // --- Close button ---
     closeBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       closeTab(id);
+    });
+
+    // --- Right-click context menu ---
+    tabEl.addEventListener('contextmenu', function(e) {
+      showTabContextMenu(e, id);
     });
 
     // --- Helper to set title on the tab ---
@@ -246,6 +251,103 @@ document.addEventListener('DOMContentLoaded', function() {
     // Save session after closing
     saveTabSession();
   }
+
+    // ==================== Tab Context Menu ====================
+  var tabContextMenu = document.getElementById('tab-context-menu');
+  var contextMenuTabId = null; // which tab was right-clicked
+
+  function getTabUrl(tabId) {
+    var tab = tabs.find(function(t) { return t.id === tabId; });
+    if (!tab) return null;
+    try {
+      return tab.webview.getURL();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function showTabContextMenu(e, tabId) {
+    e.preventDefault();
+    contextMenuTabId = tabId;
+
+    // Position the menu at the cursor
+    tabContextMenu.style.left = e.clientX + 'px';
+    tabContextMenu.style.top = e.clientY + 'px';
+    tabContextMenu.classList.add('visible');
+
+    // Ensure the menu doesn't overflow the window
+    var rect = tabContextMenu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      tabContextMenu.style.left = (window.innerWidth - rect.width - 4) + 'px';
+    }
+    if (rect.bottom > window.innerHeight) {
+      tabContextMenu.style.top = (window.innerHeight - rect.height - 4) + 'px';
+    }
+  }
+
+  function hideTabContextMenu() {
+    tabContextMenu.classList.remove('visible');
+    contextMenuTabId = null;
+  }
+
+  // Hide context menu on any click or Escape
+  document.addEventListener('click', function() {
+    hideTabContextMenu();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') hideTabContextMenu();
+  });
+
+  // Handle context menu actions
+  tabContextMenu.addEventListener('click', function(e) {
+    var item = e.target.closest('.context-menu-item');
+    if (!item || !contextMenuTabId) return;
+
+    var action = item.dataset.action;
+    var targetTabId = contextMenuTabId;
+    hideTabContextMenu();
+
+    switch (action) {
+      case 'open-browser':
+        var url = getTabUrl(targetTabId);
+        if (url) {
+          window.backupAPI.openInBrowser(url);
+        }
+        break;
+
+      case 'duplicate':
+        var dupUrl = getTabUrl(targetTabId);
+        if (dupUrl) {
+          createTab(dupUrl, { activate: true });
+        }
+        break;
+
+      case 'close':
+        closeTab(targetTabId);
+        break;
+
+      case 'close-others':
+        var otherIds = tabs
+          .filter(function(t) { return t.id !== targetTabId; })
+          .map(function(t) { return t.id; });
+        for (var i = 0; i < otherIds.length; i++) {
+          closeTab(otherIds[i]);
+        }
+        break;
+
+      case 'close-right':
+        var targetIdx = tabs.findIndex(function(t) { return t.id === targetTabId; });
+        if (targetIdx !== -1) {
+          var rightIds = tabs
+            .slice(targetIdx + 1)
+            .map(function(t) { return t.id; });
+          for (var j = 0; j < rightIds.length; j++) {
+            closeTab(rightIds[j]);
+          }
+        }
+        break;
+    }
+  });
 
   // --- New Tab button ---
   btnNewTab.addEventListener('click', function() {
