@@ -29,9 +29,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ==================== Tab Management ====================
   var DEFAULT_URL = 'https://na.myconnectwise.net/';
-  var tabs = [];       // Array of { id, webview, tabEl, titleSpan, title }
+    var tabs = [];       // Array of { id, webview, tabEl, titleSpan, title }
   var activeTabId = null;
   var tabIdCounter = 0;
+  var tabHistory = [];  // Stack of previously active tab IDs (most recent last)
 
   // --- Title cleanup: strip common prefixes ---
   function cleanTitle(raw) {
@@ -185,7 +186,11 @@ document.addEventListener('DOMContentLoaded', function() {
     return tabData;
   }
 
-  function activateTab(id) {
+    function activateTab(id) {
+    // Push the previous tab onto the history stack
+    if (activeTabId && activeTabId !== id) {
+      tabHistory.push(activeTabId);
+    }
     activeTabId = id;
 
     tabs.forEach(function(t) {
@@ -211,11 +216,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var tab = tabs[idx];
 
-    // If closing the active tab, activate an adjacent one
+        // If closing the active tab, activate the most recent tab from history
     if (activeTabId === id) {
-      var newIdx = idx > 0 ? idx - 1 : idx + 1;
-      activateTab(tabs[newIdx].id);
+      var nextId = null;
+      // Pop from history until we find a tab that still exists and isn't the one being closed
+      while (tabHistory.length > 0) {
+        var candidate = tabHistory.pop();
+        if (candidate !== id && tabs.some(function(t) { return t.id === candidate; })) {
+          nextId = candidate;
+          break;
+        }
+      }
+      // Fallback to adjacent tab if no valid history
+      if (!nextId) {
+        var newIdx = idx > 0 ? idx - 1 : idx + 1;
+        nextId = tabs[newIdx].id;
+      }
+      activateTab(nextId);
     }
+
+    // Remove all references to this tab from history
+    tabHistory = tabHistory.filter(function(hId) { return hId !== id; });
 
     // Remove DOM elements
     tab.webview.remove();
