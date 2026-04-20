@@ -785,12 +785,13 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // ==================== Auto-Grab on First Focus ====================
+    // ==================== Auto-Grab on First Typing ====================
+  // Triggered by the first input event when ticket ID is empty.
+  // Runs in the background via .then()/.catch() and NEVER calls
+  // noteContent.focus() — so the editor is never interrupted.
   var hasAttemptedAutoGrab = false;
 
-  // The auto-grab runs fully deferred (setTimeout + .then) so it never
-  // blocks or interferes with the contenteditable focus/input pipeline.
-  function attemptAutoGrab() {
+  function backgroundAutoGrab() {
     var webview = getActiveWebview();
     if (!webview) return;
 
@@ -822,7 +823,7 @@ document.addEventListener("DOMContentLoaded", function () {
           "    var els = document.querySelectorAll(selectors[i]);" +
           "    for (var j = 0; j < els.length; j++) {" +
           '      var text = els[j].innerText || els[j].textContent || "";' +
-          "      var match = text.match(/#\\s*([0-9]{4,})/);" +
+          "      var match = text.match(/#\\s*([0-9]{4,})/);"+
           "      if (match) return { ticket: match[1] };" +
           "    }" +
           "  }" +
@@ -839,41 +840,19 @@ document.addEventListener("DOMContentLoaded", function () {
           "})()",
       )
       .then(function (result) {
+        // Only fill if the user hasn't manually entered something while we were scanning
+        if (ticketIdInput.value.trim()) return;
         if (result && result.ticket) {
           ticketIdInput.value = result.ticket;
           autosaveStatus.textContent = "Auto-grabbed ticket #" + result.ticket;
           autosaveStatus.className = "saved";
-        } else {
-          autosaveStatus.textContent =
-            "No ticket detected - enter a Ticket ID when ready";
-          autosaveStatus.className = "";
         }
-        // Re-focus the editor since executeJavaScript shifts focus to the webview
-        noteContent.focus();
+        // If no ticket found, do nothing — the user can keep typing freely
       })
       .catch(function () {
-        autosaveStatus.textContent =
-          "No ticket detected - enter a Ticket ID when ready";
-        autosaveStatus.className = "";
-        // Re-focus the editor since executeJavaScript shifts focus to the webview
-        noteContent.focus();
+        // Silently ignore errors — don't interrupt the user
       });
   }
-
-  noteContent.addEventListener("focus", function () {
-    if (!ticketIdInput.value.trim() && !hasAttemptedAutoGrab) {
-      hasAttemptedAutoGrab = true;
-      // Defer completely so focus event finishes cleanly first
-      setTimeout(attemptAutoGrab, 0);
-    }
-  });
-
-  // Reset auto-grab flag when ticket ID is manually cleared
-  ticketIdInput.addEventListener("input", function () {
-    if (!ticketIdInput.value.trim()) {
-      hasAttemptedAutoGrab = false;
-    }
-  });
 
   // ==================== Autosave (Debounced) ====================
   var autosaveTimer = null;
@@ -911,7 +890,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  noteContent.addEventListener("input", function () {
+    noteContent.addEventListener("input", function () {
+    // On first typing with no ticket ID, kick off a background grab
+    if (!ticketIdInput.value.trim() && !hasAttemptedAutoGrab) {
+      hasAttemptedAutoGrab = true;
+      backgroundAutoGrab();
+    }
     autosaveStatus.textContent = "Typing...";
     autosaveStatus.className = "saving";
     clearTimeout(autosaveTimer);
@@ -1072,7 +1056,7 @@ document.addEventListener("DOMContentLoaded", function () {
     ) {
       return;
     }
-    setEditorContent("");
+        setEditorContent("");
     ticketIdInput.value = "";
     hasAttemptedAutoGrab = false;
     autosaveStatus.textContent = "Cleared";
