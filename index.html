@@ -315,6 +315,17 @@
       </div>
     </div>
 
+    <!-- Confirm Dialog (replaces native confirm() to avoid webview focus trap) -->
+    <div id="confirm-overlay" class="confirm-overlay">
+      <div class="confirm-dialog">
+        <p id="confirm-message" class="confirm-message"></p>
+        <div class="confirm-buttons">
+          <button id="confirm-yes" class="btn btn-warning">Yes</button>
+          <button id="confirm-no" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab Context Menu -->
     <div id="tab-context-menu" class="context-menu">
       <div class="context-menu-item" data-action="open-browser">

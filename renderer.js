@@ -588,6 +588,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (e.key === "Escape") {
       hideTabContextMenu();
       closeSettings();
+      if (confirmOverlay.classList.contains("visible")) closeConfirm(false);
     }
   });
 
@@ -1148,13 +1149,61 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
+  // ==================== Focus Management ======================================
+  // In Electron, the <webview> runs in a separate guest process that can
+  // hold OS-level focus even when the user clicks in the renderer's DOM.
+  // Native confirm()/alert() dialogs transfer OS focus to the webview guest
+  // and never give it back. We use a custom in-page dialog instead.
+
+  // Any mousedown on the side panel should reclaim focus from the webview
+  // so that inputs and the contenteditable editor respond immediately.
+  sidePanel.addEventListener("mousedown", function () {
+    var webview = getActiveWebview();
+    if (webview) webview.blur();
+    window.focus();
+  });
+
+  // --- Custom confirm dialog (replaces native confirm()) ---
+  var confirmOverlay = document.getElementById("confirm-overlay");
+  var confirmMessage = document.getElementById("confirm-message");
+  var confirmYes = document.getElementById("confirm-yes");
+  var confirmNo = document.getElementById("confirm-no");
+  var confirmResolve = null;
+
+  function showConfirm(message) {
+    return new Promise(function (resolve) {
+      confirmResolve = resolve;
+      confirmMessage.textContent = message;
+      confirmOverlay.classList.add("visible");
+      confirmNo.focus();
+    });
+  }
+
+  function closeConfirm(result) {
+    confirmOverlay.classList.remove("visible");
+    if (confirmResolve) {
+      confirmResolve(result);
+      confirmResolve = null;
+    }
+  }
+
+  confirmYes.addEventListener("click", function () {
+    closeConfirm(true);
+  });
+  confirmNo.addEventListener("click", function () {
+    closeConfirm(false);
+  });
+  confirmOverlay.addEventListener("click", function (e) {
+    if (e.target === confirmOverlay) closeConfirm(false);
+  });
+
   // ==================== Clear ====================
-  btnClear.addEventListener("click", function () {
-    if (
-      !isEditorEmpty() &&
-      !confirm("Clear the current note? (Autosaved data is still on disk)")
-    ) {
-      return;
+  btnClear.addEventListener("click", async function () {
+    if (!isEditorEmpty()) {
+      var confirmed = await showConfirm(
+        "Clear the current note? (Autosaved data is still on disk)",
+      );
+      if (!confirmed) return;
     }
     setEditorContent("");
     ticketIdInput.value = "";
@@ -1281,15 +1330,12 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    if (
-      !confirm(
-        'Delete ALL saved data for ticket "' +
-          selectedTicket +
-          '"?\n\nThis will remove the autosave entry and all snapshot history. This cannot be undone.',
-      )
-    ) {
-      return;
-    }
+    var confirmed = await showConfirm(
+      'Delete ALL saved data for ticket "' +
+        selectedTicket +
+        '"? This will remove the autosave entry and all snapshot history. This cannot be undone.',
+    );
+    if (!confirmed) return;
 
     try {
       await window.backupAPI.deleteTicket(selectedTicket);

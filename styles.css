@@ -967,6 +967,47 @@ body {
   font-style: italic;
 }
 
+/* ===== Confirm Dialog (in-page replacement for native confirm()) ===== */
+.confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 30000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-overlay.visible {
+  display: flex;
+}
+
+.confirm-dialog {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: 380px;
+  max-width: 90vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.confirm-message {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 /* ===== Tab Drag & Drop ===== */
 .tab-item[draggable="true"] {
   cursor: grab;
