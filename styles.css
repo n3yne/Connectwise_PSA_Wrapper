@@ -101,7 +101,10 @@ body {
   white-space: nowrap;
   max-width: 220px;
   min-width: 0;
-  transition: all 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
   position: relative;
 }
 
@@ -898,6 +901,7 @@ body {
   outline: none;
   transition: border-color 0.2s;
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .settings-number-input:focus {
@@ -961,4 +965,22 @@ body {
   color: var(--primary);
   font-weight: 700;
   font-style: italic;
+}
+
+/* ===== Tab Drag & Drop ===== */
+.tab-item[draggable="true"] {
+  cursor: grab;
+}
+
+.tab-item.tab-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.tab-item.tab-drag-over-left {
+  box-shadow: inset 3px 0 0 0 var(--primary);
+}
+
+.tab-item.tab-drag-over-right {
+  box-shadow: inset -3px 0 0 0 var(--primary);
 }

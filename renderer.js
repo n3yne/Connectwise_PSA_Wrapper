@@ -287,8 +287,9 @@ document.addEventListener("DOMContentLoaded", function () {
     };
     tabs.push(tabData);
 
-    // --- Tab click to activate ---
-    tabEl.addEventListener("mousedown", function (e) {
+    // --- Tab click to activate (use click instead of mousedown to avoid
+    //     activating during drag initiation) ---
+    tabEl.addEventListener("click", function (e) {
       if (e.target.closest(".tab-close")) return;
       activateTab(id);
     });
@@ -310,6 +311,62 @@ document.addEventListener("DOMContentLoaded", function () {
     // --- Right-click context menu ---
     tabEl.addEventListener("contextmenu", function (e) {
       showTabContextMenu(e, id);
+    });
+
+    // --- Drag & Drop to reorder ---
+    tabEl.setAttribute("draggable", "true");
+
+    tabEl.addEventListener("dragstart", function (e) {
+      draggedTabId = id;
+      tabEl.classList.add("tab-dragging");
+      e.dataTransfer.effectAllowed = "move";
+      // Set minimal drag data (required for Firefox compatibility)
+      e.dataTransfer.setData("text/plain", id);
+    });
+
+    tabEl.addEventListener("dragend", function () {
+      draggedTabId = null;
+      tabEl.classList.remove("tab-dragging");
+      clearTabDragIndicators();
+    });
+
+    tabEl.addEventListener("dragover", function (e) {
+      if (!draggedTabId || draggedTabId === id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+
+      // Determine if cursor is on left or right half of the tab
+      var rect = tabEl.getBoundingClientRect();
+      var midpoint = rect.left + rect.width / 2;
+      var onLeft = e.clientX < midpoint;
+
+      // Only update classes if the indicator position actually changed
+      var hasLeft = tabEl.classList.contains("tab-drag-over-left");
+      var hasRight = tabEl.classList.contains("tab-drag-over-right");
+      if (onLeft && !hasLeft) {
+        clearTabDragIndicators();
+        tabEl.classList.add("tab-drag-over-left");
+      } else if (!onLeft && !hasRight) {
+        clearTabDragIndicators();
+        tabEl.classList.add("tab-drag-over-right");
+      }
+    });
+
+    tabEl.addEventListener("dragleave", function () {
+      tabEl.classList.remove("tab-drag-over-left", "tab-drag-over-right");
+    });
+
+    tabEl.addEventListener("drop", function (e) {
+      e.preventDefault();
+      if (!draggedTabId || draggedTabId === id) return;
+
+      var rect = tabEl.getBoundingClientRect();
+      var midpoint = rect.left + rect.width / 2;
+      var insertAfter = e.clientX >= midpoint;
+
+      moveTab(draggedTabId, id, insertAfter);
+      clearTabDragIndicators();
+      draggedTabId = null;
     });
 
     // --- Helper to set title on the tab ---
@@ -437,6 +494,49 @@ document.addEventListener("DOMContentLoaded", function () {
     tabs.splice(idx, 1);
 
     // Save session after closing
+    saveTabSession();
+  }
+
+  // ==================== Tab Drag & Drop ======================================
+  var draggedTabId = null;
+
+  function clearTabDragIndicators() {
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].tabEl.classList.remove(
+        "tab-drag-over-left",
+        "tab-drag-over-right",
+      );
+    }
+  }
+
+  function moveTab(fromId, toId, insertAfter) {
+    if (fromId === toId) return;
+
+    var fromIdx = tabs.findIndex(function (t) {
+      return t.id === fromId;
+    });
+    var toIdx = tabs.findIndex(function (t) {
+      return t.id === toId;
+    });
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    // Remove from current position in array
+    var movedTab = tabs.splice(fromIdx, 1)[0];
+
+    // Recalculate target index after removal
+    var newIdx = tabs.findIndex(function (t) {
+      return t.id === toId;
+    });
+    if (insertAfter) {
+      newIdx = newIdx + 1;
+    }
+    tabs.splice(newIdx, 0, movedTab);
+
+    // Reorder DOM elements to match the tabs array
+    for (var i = 0; i < tabs.length; i++) {
+      tabList.appendChild(tabs[i].tabEl);
+    }
+
     saveTabSession();
   }
 
@@ -785,7 +885,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-    // ==================== Auto-Grab on First Typing ====================
+  // ==================== Auto-Grab on First Typing ====================
   // Triggered by the first input event when ticket ID is empty.
   // Runs in the background via .then()/.catch() and NEVER calls
   // noteContent.focus() — so the editor is never interrupted.
@@ -823,7 +923,7 @@ document.addEventListener("DOMContentLoaded", function () {
           "    var els = document.querySelectorAll(selectors[i]);" +
           "    for (var j = 0; j < els.length; j++) {" +
           '      var text = els[j].innerText || els[j].textContent || "";' +
-          "      var match = text.match(/#\\s*([0-9]{4,})/);"+
+          "      var match = text.match(/#\\s*([0-9]{4,})/);" +
           "      if (match) return { ticket: match[1] };" +
           "    }" +
           "  }" +
@@ -890,7 +990,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-    noteContent.addEventListener("input", function () {
+  noteContent.addEventListener("input", function () {
     // On first typing with no ticket ID, kick off a background grab
     if (!ticketIdInput.value.trim() && !hasAttemptedAutoGrab) {
       hasAttemptedAutoGrab = true;
@@ -1056,7 +1156,7 @@ document.addEventListener("DOMContentLoaded", function () {
     ) {
       return;
     }
-        setEditorContent("");
+    setEditorContent("");
     ticketIdInput.value = "";
     hasAttemptedAutoGrab = false;
     autosaveStatus.textContent = "Cleared";
