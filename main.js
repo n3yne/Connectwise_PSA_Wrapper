@@ -13,6 +13,8 @@ const DEFAULT_SETTINGS = {
   notePanelEnabled: true,
   backupRetentionDays: 7, // 0 = keep forever
   signatureHtml: "", // Rich text signature block
+  ticketSortField: "lastUpdated", // 'lastUpdated' or 'ticketNumber'
+  ticketSortDirection: "desc", // 'asc' or 'desc'
 };
 
 // ===================== Settings Persistence =====================
@@ -161,6 +163,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
+      spellcheck: true,
     },
   });
 
@@ -217,6 +220,58 @@ function createWindow() {
   const menu = electron.Menu.buildFromTemplate(menuTemplate);
   electron.Menu.setApplicationMenu(menu);
 
+  // ===================== Renderer Context Menu (notes editor, inputs) =====================
+  mainWindow.webContents.on("context-menu", (event, params) => {
+    const menuItems = [];
+
+    // Spellcheck suggestions (if any)
+    if (params.misspelledWord && params.dictionarySuggestions.length > 0) {
+      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+        menuItems.push(
+          new electron.MenuItem({
+            label: suggestion,
+            click: () => mainWindow.webContents.replaceMisspelling(suggestion),
+          }),
+        );
+      }
+      menuItems.push(new electron.MenuItem({ type: "separator" }));
+    }
+
+    // Add misspelled word to dictionary
+    if (params.misspelledWord) {
+      menuItems.push(
+        new electron.MenuItem({
+          label: `Add "${params.misspelledWord}" to Dictionary`,
+          click: () =>
+            mainWindow.webContents.session.addWordToSpellCheckerDictionary(
+              params.misspelledWord,
+            ),
+        }),
+      );
+      menuItems.push(new electron.MenuItem({ type: "separator" }));
+    }
+
+    // Standard editing actions
+    if (params.isEditable) {
+      menuItems.push(new electron.MenuItem({ role: "undo" }));
+      menuItems.push(new electron.MenuItem({ role: "redo" }));
+      menuItems.push(new electron.MenuItem({ type: "separator" }));
+      menuItems.push(new electron.MenuItem({ role: "cut" }));
+      menuItems.push(new electron.MenuItem({ role: "copy" }));
+      menuItems.push(new electron.MenuItem({ role: "paste" }));
+      menuItems.push(new electron.MenuItem({ type: "separator" }));
+      menuItems.push(new electron.MenuItem({ role: "selectAll" }));
+    } else if (params.selectionText) {
+      // Non-editable area but text is selected — offer copy
+      menuItems.push(new electron.MenuItem({ role: "copy" }));
+    }
+
+    if (menuItems.length > 0) {
+      const contextMenu = electron.Menu.buildFromTemplate(menuItems);
+      contextMenu.popup();
+    }
+  });
+
   // Open external links in the default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     electron.shell.openExternal(url);
@@ -229,6 +284,17 @@ function createWindow() {
       // Send the URL to the renderer so it can open a new tab
       mainWindow.webContents.send("open-in-new-tab", url);
       return { action: "deny" };
+    });
+
+    // Right-click context menu on links inside webviews
+    webviewContents.on("context-menu", (event, params) => {
+      if (params.linkURL && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("webview-context-menu", {
+          linkURL: params.linkURL,
+          x: params.x,
+          y: params.y,
+        });
+      }
     });
 
     // Handle guest page calling window.close() (e.g. ConnectWise "Save and Close" button)

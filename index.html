@@ -261,9 +261,39 @@
                 <span class="settings-field-suffix">days</span>
               </div>
             </div>
-            <p class="settings-description settings-description-field">
+            <p
+              class="settings-description settings-description-field settings-description-field-spaced"
+            >
               How long to keep saved note snapshots before automatic cleanup.
               Set to <strong>0</strong> to keep notes forever.
+            </p>
+
+            <div class="settings-field">
+              <label class="settings-field-label" for="setting-sort-field"
+                >Ticket Sort Order</label
+              >
+              <div class="settings-field-row">
+                <select
+                  id="setting-sort-field"
+                  class="settings-select-input"
+                  title="Sort saved tickets by"
+                >
+                  <option value="lastUpdated">Last Updated</option>
+                  <option value="ticketNumber">Ticket Number</option>
+                </select>
+                <select
+                  id="setting-sort-direction"
+                  class="settings-select-input"
+                  title="Sort direction"
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+              </div>
+            </div>
+            <p class="settings-description settings-description-field">
+              How the saved tickets dropdown is sorted. "Last Updated" sorts by
+              the most recent autosave or snapshot time.
             </p>
           </div>
 
@@ -341,6 +371,20 @@
       </div>
       <div class="context-menu-item" data-action="close-right">
         ✕ Close Tabs to the Right
+      </div>
+    </div>
+
+    <!-- Link Context Menu (right-click on links inside webviews) -->
+    <div id="link-context-menu" class="context-menu">
+      <div class="context-menu-item" data-action="link-new-tab">
+        📑 Open Link in New Tab
+      </div>
+      <div class="context-menu-item" data-action="link-browser">
+        🌐 Open Link in Default Browser
+      </div>
+      <div class="context-menu-separator"></div>
+      <div class="context-menu-item" data-action="link-copy">
+        📋 Copy Link Address
       </div>
     </div>
 

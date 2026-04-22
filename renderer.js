@@ -26,6 +26,8 @@ document.addEventListener("DOMContentLoaded", function () {
   var btnCloseSettings = document.getElementById("btn-close-settings");
   var settingNotePanel = document.getElementById("setting-note-panel");
   var settingRetentionDays = document.getElementById("setting-retention-days");
+  var settingSortField = document.getElementById("setting-sort-field");
+  var settingSortDirection = document.getElementById("setting-sort-direction");
   var settingSignature = document.getElementById("setting-signature");
   var btnInsertSignature = document.getElementById("btn-insert-signature");
 
@@ -39,6 +41,8 @@ document.addEventListener("DOMContentLoaded", function () {
     notePanelEnabled: true,
     backupRetentionDays: 7,
     signatureHtml: "",
+    ticketSortField: "lastUpdated",
+    ticketSortDirection: "desc",
   };
 
   function applySettings(settings) {
@@ -49,6 +53,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // --- Backup Retention ---
     settingRetentionDays.value = settings.backupRetentionDays;
+
+    // --- Ticket Sort Order ---
+    settingSortField.value = settings.ticketSortField || "lastUpdated";
+    settingSortDirection.value = settings.ticketSortDirection || "desc";
 
     // --- Signature ---
     // Only update the contenteditable if it doesn't currently have focus
@@ -85,6 +93,8 @@ document.addEventListener("DOMContentLoaded", function () {
     // Sync controls with current settings
     settingNotePanel.checked = appSettings.notePanelEnabled;
     settingRetentionDays.value = appSettings.backupRetentionDays;
+    settingSortField.value = appSettings.ticketSortField || "lastUpdated";
+    settingSortDirection.value = appSettings.ticketSortDirection || "desc";
     settingSignature.innerHTML = appSettings.signatureHtml || "";
     settingsOverlay.classList.add("visible");
   }
@@ -114,6 +124,18 @@ document.addEventListener("DOMContentLoaded", function () {
     settingRetentionDays.value = val;
     appSettings.backupRetentionDays = val;
     window.backupAPI.saveSettings(appSettings);
+  });
+
+  settingSortField.addEventListener("change", function () {
+    appSettings.ticketSortField = settingSortField.value;
+    window.backupAPI.saveSettings(appSettings);
+    refreshTicketList();
+  });
+
+  settingSortDirection.addEventListener("change", function () {
+    appSettings.ticketSortDirection = settingSortDirection.value;
+    window.backupAPI.saveSettings(appSettings);
+    refreshTicketList();
   });
 
   // --- Signature editor: formatting toolbar ---
@@ -587,6 +609,7 @@ document.addEventListener("DOMContentLoaded", function () {
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") {
       hideTabContextMenu();
+      hideLinkContextMenu();
       closeSettings();
       if (confirmOverlay.classList.contains("visible")) closeConfirm(false);
     }
@@ -652,6 +675,81 @@ document.addEventListener("DOMContentLoaded", function () {
   // --- New Tab button ---
   btnNewTab.addEventListener("click", function () {
     createTab(DEFAULT_URL, { activate: true });
+  });
+
+  // ==================== Link Context Menu (webview right-click) ==============
+  var linkContextMenu = document.getElementById("link-context-menu");
+  var contextMenuLinkUrl = null;
+
+  function showLinkContextMenu(x, y, linkURL) {
+    contextMenuLinkUrl = linkURL;
+
+    // The x/y from the main process are relative to the webview's content
+    // area. We need to offset by the webview's position in the renderer.
+    var webview = getActiveWebview();
+    var offsetX = 0;
+    var offsetY = 0;
+    if (webview) {
+      var wvRect = webview.getBoundingClientRect();
+      offsetX = wvRect.left;
+      offsetY = wvRect.top;
+    }
+
+    linkContextMenu.style.left = x + offsetX + "px";
+    linkContextMenu.style.top = y + offsetY + "px";
+    linkContextMenu.classList.add("visible");
+
+    // Ensure the menu doesn't overflow the window
+    var rect = linkContextMenu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      linkContextMenu.style.left = window.innerWidth - rect.width - 4 + "px";
+    }
+    if (rect.bottom > window.innerHeight) {
+      linkContextMenu.style.top = window.innerHeight - rect.height - 4 + "px";
+    }
+  }
+
+  function hideLinkContextMenu() {
+    linkContextMenu.classList.remove("visible");
+    contextMenuLinkUrl = null;
+  }
+
+  // Listen for right-click link events from the main process
+  window.backupAPI.onWebviewContextMenu(function (params) {
+    // Hide the tab context menu if it's open
+    hideTabContextMenu();
+    showLinkContextMenu(params.x, params.y, params.linkURL);
+  });
+
+  // Handle link context menu actions
+  linkContextMenu.addEventListener("click", function (e) {
+    var item = e.target.closest(".context-menu-item");
+    if (!item || !contextMenuLinkUrl) return;
+
+    var action = item.dataset.action;
+    var url = contextMenuLinkUrl;
+    hideLinkContextMenu();
+
+    switch (action) {
+      case "link-new-tab":
+        createTab(url, { activate: true });
+        break;
+
+      case "link-browser":
+        window.backupAPI.openInBrowser(url);
+        break;
+
+      case "link-copy":
+        navigator.clipboard.writeText(url).catch(function () {
+          // Fallback: silently ignore
+        });
+        break;
+    }
+  });
+
+  // Hide link context menu on click or Escape (integrate with existing handlers)
+  document.addEventListener("click", function () {
+    hideLinkContextMenu();
   });
 
   // --- Listen for new-tab requests from the main process ---
@@ -1251,18 +1349,51 @@ document.addEventListener("DOMContentLoaded", function () {
   async function refreshTicketList() {
     try {
       var tickets = await window.backupAPI.getAllTickets();
+
+      // Sort tickets based on current settings
+      var sortField = appSettings.ticketSortField || "lastUpdated";
+      var sortDir = appSettings.ticketSortDirection || "desc";
+
+      tickets.sort(function (a, b) {
+        var result = 0;
+        if (sortField === "lastUpdated") {
+          var timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+          var timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+          result = timeA - timeB;
+        } else {
+          // ticketNumber — extract leading digits for numeric comparison,
+          // fall back to locale string compare for non-numeric IDs
+          var numA = parseInt(a.ticketId, 10);
+          var numB = parseInt(b.ticketId, 10);
+          if (!isNaN(numA) && !isNaN(numB)) {
+            result = numA - numB;
+          } else {
+            result = a.ticketId.localeCompare(b.ticketId);
+          }
+        }
+        return sortDir === "desc" ? -result : result;
+      });
+
+      var previousValue = ticketSelect.value;
       ticketSelect.innerHTML =
         '<option value="">-- Select a ticket --</option>';
       tickets.forEach(function (t) {
         var opt = document.createElement("option");
         opt.value = t.ticketId;
-        opt.textContent =
-          t.ticketId +
-          (t.updatedAt
-            ? " (" + new Date(t.updatedAt).toLocaleDateString() + ")"
-            : "");
+        var dateLabel = "";
+        if (t.updatedAt) {
+          var d = new Date(t.updatedAt);
+          dateLabel =
+            " (" + d.toLocaleDateString() + " " + d.toLocaleTimeString() + ")";
+        }
+        opt.textContent = t.ticketId + dateLabel;
         ticketSelect.appendChild(opt);
       });
+
+      // Restore previously selected value if it still exists
+      if (previousValue) {
+        ticketSelect.value = previousValue;
+      }
     } catch (err) {
       console.error("Error refreshing ticket list:", err);
     }

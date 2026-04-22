@@ -908,6 +908,27 @@ body {
   border-color: var(--primary);
 }
 
+.settings-select-input {
+  padding: 5px 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+
+.settings-select-input:focus {
+  border-color: var(--primary);
+}
+
+.settings-select-input option {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
 .settings-number-input::-webkit-inner-spin-button,
 .settings-number-input::-webkit-outer-spin-button {
   opacity: 1;

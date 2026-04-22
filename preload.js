@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("backupAPI", {
     ipcRenderer.on("webview-close", (event, webContentsId) =>
       callback(webContentsId),
     ),
+  onWebviewContextMenu: (callback) =>
+    ipcRenderer.on("webview-context-menu", (event, params) => callback(params)),
   openInBrowser: (url) => ipcRenderer.invoke("open-in-browser", url),
   loadSettings: () => ipcRenderer.invoke("load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
