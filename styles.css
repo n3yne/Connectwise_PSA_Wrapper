@@ -578,6 +578,11 @@ body {
   border-color: var(--primary);
 }
 
+#ticket-select option {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
 #history-list {
   display: flex;
   flex-direction: column;
@@ -863,6 +868,10 @@ body {
 .settings-description-field {
   margin-left: 0;
   margin-top: 6px;
+}
+
+.settings-description-field-spaced {
+  margin-bottom: 16px;
 }
 
 .settings-description strong {

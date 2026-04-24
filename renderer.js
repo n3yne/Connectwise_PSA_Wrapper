@@ -36,6 +36,20 @@ document.addEventListener("DOMContentLoaded", function () {
   var webviewContainer = document.getElementById("webview-container");
   var btnNewTab = document.getElementById("btn-new-tab");
 
+  // --- Confirm Dialog Elements (declared early — referenced by Escape handler) ---
+  var confirmOverlay = document.getElementById("confirm-overlay");
+  var confirmMessage = document.getElementById("confirm-message");
+  var confirmYes = document.getElementById("confirm-yes");
+  var confirmNo = document.getElementById("confirm-no");
+  var confirmResolve = null;
+
+  // ==================== Constants ====================
+  var SIG_SAVE_DEBOUNCE = 800; // ms — signature editor save delay
+  var MENU_EDGE_PADDING = 4; // px — context menu window-edge padding
+  var PREVIEW_MAX_LENGTH = 100; // chars — history preview truncation
+  var TAB_HISTORY_MAX = 50; // max entries in tab history stack
+  var MAX_GRAB_ELEMENTS = 5000; // max DOM elements scanned during ticket grab
+
   // ==================== Settings ====================
   var appSettings = {
     notePanelEnabled: true,
@@ -69,20 +83,22 @@ document.addEventListener("DOMContentLoaded", function () {
     btnInsertSignature.style.display = settings.signatureHtml ? "" : "none";
 
     if (settings.notePanelEnabled) {
-      // Restore the panel (un-collapse if it was disabled)
+      // Restore the panel visibility
       sidePanel.style.display = "";
-      sidePanel.classList.remove("settings-disabled");
-      resizeHandle.style.display = "";
-      btnExpand.classList.remove("visible");
       btnToggle.style.display = "";
-      // Reset panelCollapsed state so toggle works correctly
-      if (!panelCollapsed) {
+      if (panelCollapsed) {
+        // Panel was collapsed before being disabled — keep it collapsed
+        sidePanel.classList.add("collapsed");
+        resizeHandle.style.display = "none";
+        btnExpand.classList.add("visible");
+      } else {
         sidePanel.classList.remove("collapsed");
+        resizeHandle.style.display = "";
+        btnExpand.classList.remove("visible");
       }
     } else {
       // Fully hide the panel, resize handle, and expand button
       sidePanel.style.display = "none";
-      sidePanel.classList.add("settings-disabled");
       resizeHandle.style.display = "none";
       btnExpand.classList.remove("visible");
       btnToggle.style.display = "none";
@@ -90,6 +106,9 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function openSettings() {
+    // Don't re-open if already visible
+    if (settingsOverlay.classList.contains("visible")) return;
+
     // Sync controls with current settings
     settingNotePanel.checked = appSettings.notePanelEnabled;
     settingRetentionDays.value = appSettings.backupRetentionDays;
@@ -155,7 +174,7 @@ document.addEventListener("DOMContentLoaded", function () {
     sigSaveTimer = setTimeout(function () {
       appSettings.signatureHtml = settingSignature.innerHTML;
       window.backupAPI.saveSettings(appSettings);
-    }, 800);
+    }, SIG_SAVE_DEBOUNCE);
   });
 
   // --- Insert Signature button on the note toolbar ---
@@ -225,7 +244,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var tabs = []; // Array of { id, webview, tabEl, titleSpan, title }
   var activeTabId = null;
   var tabIdCounter = 0;
-  var tabHistory = []; // Stack of previously active tab IDs (most recent last)
+  var tabHistory = []; // Stack of previously active tab IDs (most recent last, capped at TAB_HISTORY_MAX)
 
   // --- Title cleanup: strip common prefixes ---
   function cleanTitle(raw) {
@@ -424,13 +443,13 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     webview.addEventListener("did-navigate", function () {
-      refreshTicketList();
+      debouncedRefreshTicketList();
       updateTabTitle();
       saveTabSession();
     });
 
     webview.addEventListener("did-navigate-in-page", function () {
-      refreshTicketList();
+      debouncedRefreshTicketList();
       updateTabTitle();
       saveTabSession();
     });
@@ -452,9 +471,20 @@ document.addEventListener("DOMContentLoaded", function () {
   function activateTab(id) {
     // Push the previous tab onto the history stack
     if (activeTabId && activeTabId !== id) {
+      // Remove duplicate so the most recent position wins
+      tabHistory = tabHistory.filter(function (hId) {
+        return hId !== activeTabId;
+      });
       tabHistory.push(activeTabId);
+      // Cap history size to prevent unbounded growth
+      if (tabHistory.length > TAB_HISTORY_MAX) {
+        tabHistory = tabHistory.slice(tabHistory.length - TAB_HISTORY_MAX);
+      }
     }
     activeTabId = id;
+
+    // Reset auto-grab flag so the new tab context can be detected
+    hasAttemptedAutoGrab = false;
 
     tabs.forEach(function (t) {
       if (t.id === id) {
@@ -590,10 +620,12 @@ document.addEventListener("DOMContentLoaded", function () {
     // Ensure the menu doesn't overflow the window
     var rect = tabContextMenu.getBoundingClientRect();
     if (rect.right > window.innerWidth) {
-      tabContextMenu.style.left = window.innerWidth - rect.width - 4 + "px";
+      tabContextMenu.style.left =
+        window.innerWidth - rect.width - MENU_EDGE_PADDING + "px";
     }
     if (rect.bottom > window.innerHeight) {
-      tabContextMenu.style.top = window.innerHeight - rect.height - 4 + "px";
+      tabContextMenu.style.top =
+        window.innerHeight - rect.height - MENU_EDGE_PADDING + "px";
     }
   }
 
@@ -602,10 +634,17 @@ document.addEventListener("DOMContentLoaded", function () {
     contextMenuTabId = null;
   }
 
-  // Hide context menu on any click or Escape
-  document.addEventListener("click", function () {
-    hideTabContextMenu();
+  // --- Single document click handler for dismissing all context menus ---
+  document.addEventListener("click", function (e) {
+    // Only dismiss if the click was outside the menu
+    if (!e.target.closest("#tab-context-menu")) {
+      hideTabContextMenu();
+    }
+    if (!e.target.closest("#link-context-menu")) {
+      hideLinkContextMenu();
+    }
   });
+
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") {
       hideTabContextMenu();
@@ -651,7 +690,9 @@ document.addEventListener("DOMContentLoaded", function () {
           .map(function (t) {
             return t.id;
           });
-        for (var i = 0; i < otherIds.length; i++) {
+        // Close in reverse order so index shifting doesn't skip tabs,
+        // and the kept tab never becomes the "last tab" mid-loop.
+        for (var i = otherIds.length - 1; i >= 0; i--) {
           closeTab(otherIds[i]);
         }
         break;
@@ -664,7 +705,8 @@ document.addEventListener("DOMContentLoaded", function () {
           var rightIds = tabs.slice(targetIdx + 1).map(function (t) {
             return t.id;
           });
-          for (var j = 0; j < rightIds.length; j++) {
+          // Close in reverse order so index shifting doesn't skip tabs
+          for (var j = rightIds.length - 1; j >= 0; j--) {
             closeTab(rightIds[j]);
           }
         }
@@ -677,12 +719,32 @@ document.addEventListener("DOMContentLoaded", function () {
     createTab(DEFAULT_URL, { activate: true });
   });
 
-  // ==================== Link Context Menu (webview right-click) ==============
+  // ==================== Webview Context Menu (right-click in webviews) ========
   var linkContextMenu = document.getElementById("link-context-menu");
   var contextMenuLinkUrl = null;
+  var contextMenuSelectionText = null;
 
-  function showLinkContextMenu(x, y, linkURL) {
-    contextMenuLinkUrl = linkURL;
+  function showWebviewContextMenu(x, y, linkURL, selectionText) {
+    contextMenuLinkUrl = linkURL || null;
+    contextMenuSelectionText = selectionText || null;
+
+    // Show/hide menu items based on what was right-clicked
+    var linkItems = linkContextMenu.querySelectorAll("[data-action^='link-']");
+    var selItems = linkContextMenu.querySelectorAll("[data-action^='sel-']");
+    var separators = linkContextMenu.querySelectorAll(
+      ".context-menu-separator",
+    );
+
+    for (var li = 0; li < linkItems.length; li++) {
+      linkItems[li].style.display = linkURL ? "" : "none";
+    }
+    for (var si = 0; si < selItems.length; si++) {
+      selItems[si].style.display = selectionText ? "" : "none";
+    }
+    // Show separator only if both link and selection items are present
+    for (var sp = 0; sp < separators.length; sp++) {
+      separators[sp].style.display = linkURL && selectionText ? "" : "none";
+    }
 
     // The x/y from the main process are relative to the webview's content
     // area. We need to offset by the webview's position in the renderer.
@@ -702,53 +764,70 @@ document.addEventListener("DOMContentLoaded", function () {
     // Ensure the menu doesn't overflow the window
     var rect = linkContextMenu.getBoundingClientRect();
     if (rect.right > window.innerWidth) {
-      linkContextMenu.style.left = window.innerWidth - rect.width - 4 + "px";
+      linkContextMenu.style.left =
+        window.innerWidth - rect.width - MENU_EDGE_PADDING + "px";
     }
     if (rect.bottom > window.innerHeight) {
-      linkContextMenu.style.top = window.innerHeight - rect.height - 4 + "px";
+      linkContextMenu.style.top =
+        window.innerHeight - rect.height - MENU_EDGE_PADDING + "px";
     }
   }
 
   function hideLinkContextMenu() {
     linkContextMenu.classList.remove("visible");
     contextMenuLinkUrl = null;
+    contextMenuSelectionText = null;
   }
 
-  // Listen for right-click link events from the main process
+  // Listen for right-click events from webviews via the main process
   window.backupAPI.onWebviewContextMenu(function (params) {
     // Hide the tab context menu if it's open
     hideTabContextMenu();
-    showLinkContextMenu(params.x, params.y, params.linkURL);
+    showWebviewContextMenu(
+      params.x,
+      params.y,
+      params.linkURL,
+      params.selectionText,
+    );
   });
 
-  // Handle link context menu actions
+  // Handle webview context menu actions
   linkContextMenu.addEventListener("click", function (e) {
     var item = e.target.closest(".context-menu-item");
-    if (!item || !contextMenuLinkUrl) return;
+    if (!item) return;
 
     var action = item.dataset.action;
-    var url = contextMenuLinkUrl;
-    hideLinkContextMenu();
 
     switch (action) {
       case "link-new-tab":
-        createTab(url, { activate: true });
+        if (contextMenuLinkUrl)
+          createTab(contextMenuLinkUrl, { activate: true });
         break;
 
       case "link-browser":
-        window.backupAPI.openInBrowser(url);
+        if (contextMenuLinkUrl)
+          window.backupAPI.openInBrowser(contextMenuLinkUrl);
         break;
 
       case "link-copy":
-        navigator.clipboard.writeText(url).catch(function () {
-          // Fallback: silently ignore
-        });
+        if (contextMenuLinkUrl) {
+          navigator.clipboard.writeText(contextMenuLinkUrl).catch(function () {
+            // Silently ignore clipboard errors
+          });
+        }
+        break;
+
+      case "sel-copy":
+        if (contextMenuSelectionText) {
+          navigator.clipboard
+            .writeText(contextMenuSelectionText)
+            .catch(function () {
+              // Silently ignore clipboard errors
+            });
+        }
         break;
     }
-  });
 
-  // Hide link context menu on click or Escape (integrate with existing handlers)
-  document.addEventListener("click", function () {
     hideLinkContextMenu();
   });
 
@@ -870,11 +949,19 @@ document.addEventListener("DOMContentLoaded", function () {
     var items = (e.clipboardData || {}).items;
     if (!items) return;
 
+    // Collect all image items first, then process them all
+    var imageItems = [];
     for (var i = 0; i < items.length; i++) {
       if (items[i].type.indexOf("image/") === 0) {
-        e.preventDefault();
+        imageItems.push(items[i]);
+      }
+    }
 
-        var blob = items[i].getAsFile();
+    if (imageItems.length > 0) {
+      e.preventDefault();
+
+      imageItems.forEach(function (imageItem) {
+        var blob = imageItem.getAsFile();
         var reader = new FileReader();
         reader.onload = function (event) {
           var img = document.createElement("img");
@@ -897,8 +984,7 @@ document.addEventListener("DOMContentLoaded", function () {
           noteContent.dispatchEvent(new Event("input"));
         };
         reader.readAsDataURL(blob);
-        return;
-      }
+      });
     }
   });
 
@@ -911,10 +997,18 @@ document.addEventListener("DOMContentLoaded", function () {
     var files = e.dataTransfer.files;
     if (!files || files.length === 0) return;
 
+    // Collect all image files, then process them all
+    var imageFiles = [];
     for (var i = 0; i < files.length; i++) {
       if (files[i].type.indexOf("image/") === 0) {
-        e.preventDefault();
+        imageFiles.push(files[i]);
+      }
+    }
 
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+
+      imageFiles.forEach(function (file) {
         var reader = new FileReader();
         reader.onload = function (event) {
           var img = document.createElement("img");
@@ -923,9 +1017,8 @@ document.addEventListener("DOMContentLoaded", function () {
           noteContent.appendChild(img);
           noteContent.dispatchEvent(new Event("input"));
         };
-        reader.readAsDataURL(files[i]);
-        return;
-      }
+        reader.readAsDataURL(file);
+      });
     }
   });
 
@@ -984,10 +1077,90 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
+  // ==================== Grab Ticket from ConnectWise ====================
+
+  // Shared ticket-grab script injected into webviews.
+  // The backgroundAutoGrab() and manual grab button both use this.
+  var TICKET_GRAB_SCRIPT =
+    "(function() {" +
+    "  var selectors = [" +
+    '    ".cw-header-ticket-number",' +
+    '    ".ticket-number",' +
+    '    "[class*=ticketNumber]",' +
+    '    "[class*=ticket-number]",' +
+    '    "[class*=TicketNumber]",' +
+    '    "[data-testid*=ticket]",' +
+    '    ".sr-number",' +
+    '    "[class*=srNumber]",' +
+    '    "[class*=recordId]",' +
+    '    "[class*=record-id]",' +
+    '    ".cw-breadcrumb",' +
+    '    ".breadcrumb",' +
+    '    ".tab-label.active",' +
+    '    ".cw-tab.active",' +
+    '    "[class*=activeTab]",' +
+    '    ".selected-tab",' +
+    '    ".panel-title",' +
+    '    ".card-header",' +
+    '    "h1", "h2", "h3"' +
+    "  ];" +
+    "  for (var i = 0; i < selectors.length; i++) {" +
+    "    var els = document.querySelectorAll(selectors[i]);" +
+    "    for (var j = 0; j < els.length; j++) {" +
+    '      var text = els[j].innerText || els[j].textContent || "";' +
+    "      var match = text.match(/#\\s*([0-9]{4,})/);" +
+    "      if (match) return { ticket: match[1], source: selectors[i], text: text.substring(0, 100) };" +
+    "    }" +
+    "  }" +
+    '  var body = document.body.innerText || "";' +
+    "  var patterns = [" +
+    "    /(?:Service\\s*Ticket|Ticket|SR)\\s*#\\s*([0-9]{4,})/i," +
+    "    /#([0-9]{5,})/" +
+    "  ];" +
+    "  for (var p = 0; p < patterns.length; p++) {" +
+    "    var m = body.match(patterns[p]);" +
+    '    if (m) return { ticket: m[1], source: "body-scan", text: "" };' +
+    "  }" +
+    '  var inputs = document.querySelectorAll("input, [contenteditable], span, div");' +
+    "  for (var k = 0; k < inputs.length; k++) {" +
+    "    var el = inputs[k];" +
+    '    var val = el.value || el.innerText || el.textContent || "";' +
+    '    var label = (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || "").toLowerCase();' +
+    "    if (label.match(/ticket|sr\\s*#|record\\s*id|ticket\\s*number/)) {" +
+    "      var numMatch = val.match(/([0-9]{4,})/);" +
+    '      if (numMatch) return { ticket: numMatch[1], source: "input-label:" + label, text: val.substring(0, 100) };' +
+    "    }" +
+    "  }" +
+    '  var allEls = document.querySelectorAll("*");' +
+    "  var maxScan = Math.min(allEls.length, " +
+    MAX_GRAB_ELEMENTS +
+    ");" +
+    "  for (var a = 0; a < maxScan; a++) {" +
+    '    var cls = allEls[a].className || "";' +
+    '    if (typeof cls === "string" && cls.match(/tab.*active|active.*tab|selected/i)) {' +
+    '      var tabText = allEls[a].innerText || "";' +
+    "      var tabMatch = tabText.match(/#\\s*([0-9]{4,})/);" +
+    '      if (tabMatch) return { ticket: tabMatch[1], source: "active-tab-class", text: tabText.substring(0, 100) };' +
+    "    }" +
+    "  }" +
+    "  return {" +
+    "    ticket: null," +
+    '    source: "not-found",' +
+    "    debug: {" +
+    "      title: document.title," +
+    "      url: window.location.href," +
+    '      h1: (document.querySelector("h1") || {}).innerText || "",' +
+    '      h2: (document.querySelector("h2") || {}).innerText || "",' +
+    "      bodySnippet: body.substring(0, 500)" +
+    "    }" +
+    "  };" +
+    "})()";
+
   // ==================== Auto-Grab on First Typing ====================
   // Triggered by the first input event when ticket ID is empty.
   // Runs in the background via .then()/.catch() and NEVER calls
   // noteContent.focus() — so the editor is never interrupted.
+  // Reset on tab switch (in activateTab) and on Clear.
   var hasAttemptedAutoGrab = false;
 
   function backgroundAutoGrab() {
@@ -995,49 +1168,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!webview) return;
 
     webview
-      .executeJavaScript(
-        "(function() {" +
-          "  var selectors = [" +
-          '    ".cw-header-ticket-number",' +
-          '    ".ticket-number",' +
-          '    "[class*=ticketNumber]",' +
-          '    "[class*=ticket-number]",' +
-          '    "[class*=TicketNumber]",' +
-          '    "[data-testid*=ticket]",' +
-          '    ".sr-number",' +
-          '    "[class*=srNumber]",' +
-          '    "[class*=recordId]",' +
-          '    "[class*=record-id]",' +
-          '    ".cw-breadcrumb",' +
-          '    ".breadcrumb",' +
-          '    ".tab-label.active",' +
-          '    ".cw-tab.active",' +
-          '    "[class*=activeTab]",' +
-          '    ".selected-tab",' +
-          '    ".panel-title",' +
-          '    ".card-header",' +
-          '    "h1", "h2", "h3"' +
-          "  ];" +
-          "  for (var i = 0; i < selectors.length; i++) {" +
-          "    var els = document.querySelectorAll(selectors[i]);" +
-          "    for (var j = 0; j < els.length; j++) {" +
-          '      var text = els[j].innerText || els[j].textContent || "";' +
-          "      var match = text.match(/#\\s*([0-9]{4,})/);" +
-          "      if (match) return { ticket: match[1] };" +
-          "    }" +
-          "  }" +
-          '  var body = document.body.innerText || "";' +
-          "  var patterns = [" +
-          "    /(?:Service\\s*Ticket|Ticket|SR)\\s*#\\s*([0-9]{4,})/i," +
-          "    /#([0-9]{5,})/" +
-          "  ];" +
-          "  for (var p = 0; p < patterns.length; p++) {" +
-          "    var m = body.match(patterns[p]);" +
-          "    if (m) return { ticket: m[1] };" +
-          "  }" +
-          "  return { ticket: null };" +
-          "})()",
-      )
+      .executeJavaScript(TICKET_GRAB_SCRIPT)
       .then(function (result) {
         // Only fill if the user hasn't manually entered something while we were scanning
         if (ticketIdInput.value.trim()) return;
@@ -1108,8 +1239,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // ==================== Grab Ticket from ConnectWise ====================
-
   btnGrabTicket.addEventListener("click", async function () {
     var webview = getActiveWebview();
     if (!webview) {
@@ -1118,78 +1247,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     try {
-      var result = await webview.executeJavaScript(
-        "(function() {" +
-          "  var selectors = [" +
-          '    ".cw-header-ticket-number",' +
-          '    ".ticket-number",' +
-          '    "[class*=ticketNumber]",' +
-          '    "[class*=ticket-number]",' +
-          '    "[class*=TicketNumber]",' +
-          '    "[data-testid*=ticket]",' +
-          '    ".sr-number",' +
-          '    "[class*=srNumber]",' +
-          '    "[class*=recordId]",' +
-          '    "[class*=record-id]",' +
-          '    ".cw-breadcrumb",' +
-          '    ".breadcrumb",' +
-          '    ".tab-label.active",' +
-          '    ".cw-tab.active",' +
-          '    "[class*=activeTab]",' +
-          '    ".selected-tab",' +
-          '    ".panel-title",' +
-          '    ".card-header",' +
-          '    "h1", "h2", "h3"' +
-          "  ];" +
-          "  for (var i = 0; i < selectors.length; i++) {" +
-          "    var els = document.querySelectorAll(selectors[i]);" +
-          "    for (var j = 0; j < els.length; j++) {" +
-          '      var text = els[j].innerText || els[j].textContent || "";' +
-          "      var match = text.match(/#\\s*([0-9]{4,})/);" +
-          "      if (match) return { ticket: match[1], source: selectors[i], text: text.substring(0, 100) };" +
-          "    }" +
-          "  }" +
-          '  var body = document.body.innerText || "";' +
-          "  var patterns = [" +
-          "    /(?:Service\\s*Ticket|Ticket|SR)\\s*#\\s*([0-9]{4,})/i," +
-          "    /#([0-9]{5,})/" +
-          "  ];" +
-          "  for (var p = 0; p < patterns.length; p++) {" +
-          "    var m = body.match(patterns[p]);" +
-          '    if (m) return { ticket: m[1], source: "body-scan", text: "" };' +
-          "  }" +
-          '  var inputs = document.querySelectorAll("input, [contenteditable], span, div");' +
-          "  for (var k = 0; k < inputs.length; k++) {" +
-          "    var el = inputs[k];" +
-          '    var val = el.value || el.innerText || el.textContent || "";' +
-          '    var label = (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || "").toLowerCase();' +
-          "    if (label.match(/ticket|sr\\s*#|record\\s*id|ticket\\s*number/)) {" +
-          "      var numMatch = val.match(/([0-9]{4,})/);" +
-          '      if (numMatch) return { ticket: numMatch[1], source: "input-label:" + label, text: val.substring(0, 100) };' +
-          "    }" +
-          "  }" +
-          '  var allEls = document.querySelectorAll("*");' +
-          "  for (var a = 0; a < Math.min(allEls.length, 5000); a++) {" +
-          '    var cls = allEls[a].className || "";' +
-          '    if (typeof cls === "string" && cls.match(/tab.*active|active.*tab|selected/i)) {' +
-          '      var tabText = allEls[a].innerText || "";' +
-          "      var tabMatch = tabText.match(/#\\s*([0-9]{4,})/);" +
-          '      if (tabMatch) return { ticket: tabMatch[1], source: "active-tab-class", text: tabText.substring(0, 100) };' +
-          "    }" +
-          "  }" +
-          "  return {" +
-          "    ticket: null," +
-          '    source: "not-found",' +
-          "    debug: {" +
-          "      title: document.title," +
-          "      url: window.location.href," +
-          '      h1: (document.querySelector("h1") || {}).innerText || "",' +
-          '      h2: (document.querySelector("h2") || {}).innerText || "",' +
-          "      bodySnippet: body.substring(0, 500)" +
-          "    }" +
-          "  };" +
-          "})()",
-      );
+      var result = await webview.executeJavaScript(TICKET_GRAB_SCRIPT);
 
       if (result && result.ticket) {
         ticketIdInput.value = result.ticket;
@@ -1233,6 +1291,7 @@ document.addEventListener("DOMContentLoaded", function () {
         noteContent: content,
         isManual: true,
       });
+      lastSavedTicketId = ticketId;
       autosaveStatus.textContent =
         "Snapshot saved at " + new Date(result.timestamp).toLocaleTimeString();
       autosaveStatus.className = "saved";
@@ -1261,13 +1320,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window.focus();
   });
 
-  // --- Custom confirm dialog (replaces native confirm()) ---
-  var confirmOverlay = document.getElementById("confirm-overlay");
-  var confirmMessage = document.getElementById("confirm-message");
-  var confirmYes = document.getElementById("confirm-yes");
-  var confirmNo = document.getElementById("confirm-no");
-  var confirmResolve = null;
-
+  // --- Custom confirm dialog (uses elements declared at top of DOMContentLoaded) ---
   function showConfirm(message) {
     return new Promise(function (resolve) {
       confirmResolve = resolve;
@@ -1303,9 +1356,11 @@ document.addEventListener("DOMContentLoaded", function () {
       );
       if (!confirmed) return;
     }
+    clearTimeout(autosaveTimer);
     setEditorContent("");
     ticketIdInput.value = "";
     hasAttemptedAutoGrab = false;
+    lastSavedTicketId = null;
     autosaveStatus.textContent = "Cleared";
     autosaveStatus.className = "";
   });
@@ -1333,10 +1388,17 @@ document.addEventListener("DOMContentLoaded", function () {
         autosaveStatus.className = "saved";
       })
       .catch(function () {
-        navigator.clipboard.writeText(plainText).then(function () {
-          autosaveStatus.textContent = "Copied to clipboard (plain text)";
-          autosaveStatus.className = "saved";
-        });
+        navigator.clipboard
+          .writeText(plainText)
+          .then(function () {
+            autosaveStatus.textContent = "Copied to clipboard (plain text)";
+            autosaveStatus.className = "saved";
+          })
+          .catch(function (err) {
+            autosaveStatus.textContent = "Failed to copy to clipboard";
+            autosaveStatus.className = "";
+            console.error("Clipboard error:", err);
+          });
       });
   });
 
@@ -1346,6 +1408,13 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   // ==================== History ====================
+  // --- Debounced refreshTicketList for navigation events ---
+  var refreshTicketListTimer = null;
+  function debouncedRefreshTicketList() {
+    clearTimeout(refreshTicketListTimer);
+    refreshTicketListTimer = setTimeout(refreshTicketList, 500);
+  }
+
   async function refreshTicketList() {
     try {
       var tickets = await window.backupAPI.getAllTickets();
@@ -1417,22 +1486,27 @@ document.addEventListener("DOMContentLoaded", function () {
 
         var tempDiv = document.createElement("div");
         tempDiv.innerHTML = item.content;
-        var preview = tempDiv.innerText.substring(0, 100);
+        var preview = tempDiv.innerText.substring(0, PREVIEW_MAX_LENGTH);
 
         var displayName = item.filename
           .replace(".html", "")
           .replace(".txt", "");
-        div.innerHTML =
-          '<div class="history-time">' +
-          displayName +
-          "</div>" +
-          '<div class="history-preview">' +
-          (preview || "(empty)") +
-          "</div>";
+
+        var timeDiv = document.createElement("div");
+        timeDiv.className = "history-time";
+        timeDiv.textContent = displayName;
+
+        var previewDiv = document.createElement("div");
+        previewDiv.className = "history-preview";
+        previewDiv.textContent = preview || "(empty)";
+
+        div.appendChild(timeDiv);
+        div.appendChild(previewDiv);
 
         div.addEventListener("click", function () {
           setEditorContent(item.content);
           ticketIdInput.value = ticketId;
+          lastSavedTicketId = ticketId;
           autosaveStatus.textContent = "Restored from snapshot";
           autosaveStatus.className = "saved";
         });
@@ -1487,18 +1561,24 @@ document.addEventListener("DOMContentLoaded", function () {
       var keys = Object.keys(data);
       if (keys.length > 0) {
         var latestKey = keys[0];
-        var latestTime = data[keys[0]].updatedAt || "";
+        var latestTimeMs = data[keys[0]].updatedAt
+          ? new Date(data[keys[0]].updatedAt).getTime()
+          : 0;
         keys.forEach(function (k) {
-          if ((data[k].updatedAt || "") > latestTime) {
-            latestTime = data[k].updatedAt;
+          var timeMs = data[k].updatedAt
+            ? new Date(data[k].updatedAt).getTime()
+            : 0;
+          if (timeMs > latestTimeMs) {
+            latestTimeMs = timeMs;
             latestKey = k;
           }
         });
 
         ticketIdInput.value = latestKey === "general" ? "" : latestKey;
         setEditorContent(data[latestKey].content || "");
+        lastSavedTicketId = latestKey;
         autosaveStatus.textContent =
-          "Restored draft from " + new Date(latestTime).toLocaleString();
+          "Restored draft from " + new Date(latestTimeMs).toLocaleString();
         autosaveStatus.className = "saved";
       }
     } catch (err) {
@@ -1513,12 +1593,12 @@ document.addEventListener("DOMContentLoaded", function () {
   // ==================== Keyboard Shortcuts ====================
   document.addEventListener("keydown", function (e) {
     // Ctrl+Shift+S - Save snapshot
-    if (e.ctrlKey && e.shiftKey && e.key === "S") {
+    if (e.ctrlKey && e.shiftKey && (e.key === "S" || e.key === "s")) {
       e.preventDefault();
       btnSave.click();
     }
     // Ctrl+Shift+B - Toggle side panel
-    if (e.ctrlKey && e.shiftKey && e.key === "B") {
+    if (e.ctrlKey && e.shiftKey && (e.key === "B" || e.key === "b")) {
       e.preventDefault();
       togglePanel();
     }
@@ -1580,7 +1660,9 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
     if (urls.length > 0) {
-      window.backupAPI.saveTabs(urls);
+      // Use fire-and-forget send (not async invoke) so the message is
+      // queued synchronously before the renderer process is destroyed.
+      window.backupAPI.saveTabsSync(urls);
     }
   });
 });

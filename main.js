@@ -47,6 +47,11 @@ function ensureBackupDir() {
   }
 }
 
+// Shared ticket ID sanitization — must be used consistently everywhere
+function sanitizeTicketId(raw) {
+  return (raw || "no-ticket").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 // ===================== Auto-Cleanup Old Backups =====================
 
 function cleanupOldBackups() {
@@ -272,9 +277,16 @@ function createWindow() {
     }
   });
 
-  // Open external links in the default browser
+  // Open external links in the default browser (only http/https)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    electron.shell.openExternal(url);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        electron.shell.openExternal(url);
+      }
+    } catch (e) {
+      // Ignore invalid URLs
+    }
     return { action: "deny" };
   });
 
@@ -286,21 +298,41 @@ function createWindow() {
       return { action: "deny" };
     });
 
-    // Right-click context menu on links inside webviews
+    // Right-click context menu inside webviews (links, text selection, etc.)
     webviewContents.on("context-menu", (event, params) => {
-      if (params.linkURL && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("webview-context-menu", {
-          linkURL: params.linkURL,
-          x: params.x,
-          y: params.y,
-        });
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+
+      // Build context data for the renderer
+      const contextData = {
+        x: params.x,
+        y: params.y,
+        linkURL: params.linkURL || "",
+        selectionText: params.selectionText || "",
+        mediaType: params.mediaType || "",
+        srcURL: params.srcURL || "",
+      };
+
+      // Only send if there's something actionable to show
+      if (contextData.linkURL || contextData.selectionText) {
+        mainWindow.webContents.send("webview-context-menu", contextData);
       }
     });
 
-    // Handle guest page calling window.close() (e.g. ConnectWise "Save and Close" button)
+    // Handle guest page beforeunload dialogs (e.g. unsaved form changes)
     webviewContents.on("will-prevent-unload", (e) => {
-      // Don't let beforeunload dialogs block the close
-      e.preventDefault();
+      // Show a confirmation dialog instead of silently suppressing
+      const choice = electron.dialog.showMessageBoxSync(mainWindow, {
+        type: "question",
+        buttons: ["Leave Page", "Stay"],
+        title: "Leave this page?",
+        message: "Changes you made may not be saved.",
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (choice === 0) {
+        e.preventDefault(); // Allow the navigation/close to proceed
+      }
+      // If choice === 1 (Stay), do nothing — the unload is already prevented
     });
 
     webviewContents.on("destroyed", () => {
@@ -320,10 +352,7 @@ function registerIpcHandlers() {
       ensureBackupDir();
 
       const timestamp = new Date().toISOString();
-      const safeTicketId = (ticketId || "no-ticket").replace(
-        /[^a-zA-Z0-9_-]/g,
-        "_",
-      );
+      const safeTicketId = sanitizeTicketId(ticketId);
 
       // Always update the autosave file (latest state of all drafts)
       let autosaveData = {};
@@ -375,10 +404,7 @@ function registerIpcHandlers() {
   // Get history for a specific ticket
   electron.ipcMain.handle("get-history", async (event, ticketId) => {
     ensureBackupDir();
-    const safeTicketId = (ticketId || "no-ticket").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
+    const safeTicketId = sanitizeTicketId(ticketId);
     const historyDir = path.join(BACKUP_DIR, safeTicketId);
 
     if (!fs.existsSync(historyDir)) return [];
@@ -400,12 +426,17 @@ function registerIpcHandlers() {
     ensureBackupDir();
 
     const entries = [];
+    const seen = new Set();
     if (fs.existsSync(AUTOSAVE_FILE)) {
       try {
         const data = JSON.parse(fs.readFileSync(AUTOSAVE_FILE, "utf-8"));
         for (const [ticketId, info] of Object.entries(data)) {
+          // Sanitize to match the IDs used by save/load/delete handlers
+          const safeId = sanitizeTicketId(ticketId);
+          if (seen.has(safeId)) continue;
+          seen.add(safeId);
           entries.push({
-            ticketId,
+            ticketId: safeId,
             updatedAt: info.updatedAt,
             source: "autosave",
           });
@@ -420,8 +451,10 @@ function registerIpcHandlers() {
       .map((d) => d.name);
 
     for (const dir of dirs) {
-      if (!entries.find((e) => e.ticketId === dir)) {
-        entries.push({ ticketId: dir, source: "history" });
+      const safeDir = sanitizeTicketId(dir);
+      if (!seen.has(safeDir)) {
+        seen.add(safeDir);
+        entries.push({ ticketId: safeDir, source: "history" });
       }
     }
 
@@ -430,10 +463,7 @@ function registerIpcHandlers() {
 
   // Delete autosave entry for a ticket
   electron.ipcMain.handle("delete-autosave", async (event, ticketId) => {
-    const safeTicketId = (ticketId || "no-ticket").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
+    const safeTicketId = sanitizeTicketId(ticketId);
     if (fs.existsSync(AUTOSAVE_FILE)) {
       try {
         const data = JSON.parse(fs.readFileSync(AUTOSAVE_FILE, "utf-8"));
@@ -448,10 +478,7 @@ function registerIpcHandlers() {
 
   // Delete ALL data for a ticket (autosave entry + history folder)
   electron.ipcMain.handle("delete-ticket", async (event, ticketId) => {
-    const safeTicketId = (ticketId || "no-ticket").replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_",
-    );
+    const safeTicketId = sanitizeTicketId(ticketId);
 
     // Remove from autosave.json
     if (fs.existsSync(AUTOSAVE_FILE)) {
@@ -480,7 +507,7 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
-  // Save open tab URLs to disk
+  // Save open tab URLs to disk (async, returns result)
   electron.ipcMain.handle("save-tabs", async (event, tabUrls) => {
     ensureBackupDir();
     try {
@@ -492,10 +519,30 @@ function registerIpcHandlers() {
     }
   });
 
+  // Save open tab URLs to disk (fire-and-forget, for beforeunload)
+  electron.ipcMain.on("save-tabs-sync", (event, tabUrls) => {
+    ensureBackupDir();
+    try {
+      fs.writeFileSync(TABS_FILE, JSON.stringify(tabUrls, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[Tabs] Error saving tabs (sync):", e);
+    }
+  });
+
   // Open a URL in the user's default browser
   electron.ipcMain.handle("open-in-browser", async (event, url) => {
     if (url && typeof url === "string") {
-      electron.shell.openExternal(url);
+      // Only allow http/https URLs to prevent opening file:// or other schemes
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          electron.shell.openExternal(url);
+        } else {
+          console.warn("[Browser] Blocked non-http URL:", parsed.protocol);
+        }
+      } catch (e) {
+        console.warn("[Browser] Invalid URL:", url);
+      }
     }
     return { success: true };
   });
@@ -554,8 +601,11 @@ electron.app.whenReady().then(() => {
   TABS_FILE = path.join(BACKUP_DIR, "open-tabs.json");
   SETTINGS_FILE = path.join(BACKUP_DIR, "settings.json");
 
-  // Set a realistic user agent so ConnectWise doesn't block Electron
+  // Set a realistic user agent for ConnectWise requests only
+  // (scoped to myconnectwise.net to avoid affecting other services)
+  const CW_URL_FILTER = { urls: ["*://*.myconnectwise.net/*"] };
   electron.session.defaultSession.webRequest.onBeforeSendHeaders(
+    CW_URL_FILTER,
     (details, callback) => {
       details.requestHeaders["User-Agent"] =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -563,14 +613,14 @@ electron.app.whenReady().then(() => {
     },
   );
 
-  // Clean up old backups on startup
-  cleanupOldBackups();
-
   // Register all IPC handlers
   registerIpcHandlers();
 
   // Create the window
   createWindow();
+
+  // Clean up old backups after window is created (non-blocking)
+  setTimeout(cleanupOldBackups, 0);
 
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
