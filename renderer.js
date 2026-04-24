@@ -187,9 +187,9 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // Build the signature block with a trailing empty paragraph so the
-    // cursor has somewhere to land and the user can keep typing.
-    var block = "<br>" + sigHtml + "<p><br></p>";
+    // Build the signature block with a leading line break for spacing,
+    // but no trailing line break so the cursor lands right at the end.
+    var block = "<br>" + sigHtml;
 
     // Append to the end of the editor
     noteContent.focus();
@@ -202,18 +202,8 @@ document.addEventListener("DOMContentLoaded", function () {
     sel.removeAllRanges();
     sel.addRange(range);
 
-    // Insert the HTML
+    // Insert the HTML at the cursor position
     document.execCommand("insertHTML", false, block);
-
-    // Place cursor inside the trailing empty paragraph
-    var trailing = noteContent.querySelector("p:last-child");
-    if (trailing) {
-      var newRange = document.createRange();
-      newRange.selectNodeContents(trailing);
-      newRange.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-    }
 
     autosaveStatus.textContent = "Signature inserted";
     autosaveStatus.className = "saved";
